@@ -7,9 +7,9 @@ export sample_prior,
 
 using FITSIO
 using Distributions
-import SloanDigitalSkySurvey.WCSUtils
-import WCS.WCSTransform
+import WCS: WCSTransform, world_to_pix
 
+import ..LinearWCS: LinearWCSTransform2D
 using ..Util
 using ..Types
 import ..ElboDeriv  # for trim_source_tiles
@@ -277,10 +277,10 @@ Returns:
 function SkyPatch(world_center::Vector{Float64}, radius::Float64,
                   img::Image; fit_psf=true)
     psf = fit_psf ? SkyImages.get_source_psf(world_center, img) : img.psf
-    pixel_center = WCSUtils.world_to_pix(img.wcs, world_center)
-    wcs_jacobian = WCSUtils.pixel_world_jacobian(img.wcs, pixel_center)
+    pixel_center = world_to_pix(img.wcs, world_center)
+    wcs = LinearWCSTransform2D(img.wcs, pixel_center)
 
-    SkyPatch(world_center, radius, psf, wcs_jacobian, pixel_center)
+    SkyPatch(world_center, radius, psf, wcs)
 end
 
 
@@ -300,14 +300,13 @@ function SkyPatch(ce::CatalogEntry, img::Image; fit_psf=true,
                   scale_patch_size=1.0)
     world_center = ce.pos
     psf = fit_psf ? SkyImages.get_source_psf(world_center, img) : img.psf
-    pixel_center = WCSUtils.world_to_pix(img.wcs, world_center)
-    wcs_jacobian = WCSUtils.pixel_world_jacobian(img.wcs, pixel_center)
+    pixel_center = world_to_pix(img.wcs, world_center)
+    wcs = LinearWCSTransform2D(img.wcs, pixel_center)
 
     pix_radius = choose_patch_radius(pixel_center, ce, psf, img)
-    sky_radius = SkyImages.pixel_radius_to_world(pix_radius, wcs_jacobian)
+    sky_radius = SkyImages.pixel_radius_to_world(pix_radius, wcs)
 
-    SkyPatch(world_center, scale_patch_size * sky_radius,
-             psf, wcs_jacobian, pixel_center)
+    SkyPatch(world_center, scale_patch_size * sky_radius, psf, wcs)
 end
 
 

@@ -1,9 +1,10 @@
 using Base.Test
 import DualNumbers
+import WCS: world_to_pix
 
-using Celeste: Types, SampleData, SensitiveFloats
+using Celeste: Types, SampleData, SensitiveFloats, LinearWCS
 import Celeste: Synthetic, SkyImages, Util, ElboDeriv, ModelInit
-import SloanDigitalSkySurvey: SDSS, WCSUtils
+import SloanDigitalSkySurvey: SDSS
 
 if VERSION > v"0.5.0-dev"
     using Base.Threads
@@ -467,8 +468,7 @@ function test_fs1m_derivatives()
 
   patch = mp.patches[s, b];
   u = mp.vp[s][ids.u]
-  u_pix = WCSUtils.world_to_pix(
-    patch.wcs_jacobian, patch.center, patch.pixel_center, u)
+  u_pix = convert(Vector{Float64}, world_to_pix(patch.wcs, u))
   x = ceil(u_pix + [1.0, 2.0])
 
   elbo_vars = ElboDeriv.ElboIntermediateVariables(Float64, 1, 1);
@@ -514,7 +514,7 @@ function test_fs1m_derivatives()
     star_mcs, gal_mcs = ElboDeriv.load_bvn_mixtures(mp, b);
     clear!(elbo_vars.fs1m_vec[s]);
     ElboDeriv.accum_galaxy_pos!(
-      elbo_vars, s, gal_mcs[gcc_ind...], x, patch.wcs_jacobian, true);
+      elbo_vars, s, gal_mcs[gcc_ind...], x, patch.wcs, true);
     fs1m = deepcopy(elbo_vars.fs1m_vec[s]);
 
     # Two sanity checks.
@@ -544,8 +544,7 @@ function test_fs0m_derivatives()
 
   patch = mp.patches[s, b];
   u = mp.vp[s][ids.u]
-  u_pix = WCSUtils.world_to_pix(
-    patch.wcs_jacobian, patch.center, patch.pixel_center, u)
+  u_pix = convert(Vector{Float64}, world_to_pix(patch.wcs, u))
   x = ceil(u_pix + [1.0, 2.0])
 
   elbo_vars = ElboDeriv.ElboIntermediateVariables(Float64, 1, 1);
@@ -570,7 +569,7 @@ function test_fs0m_derivatives()
       star_mcs, gal_mcs = ElboDeriv.load_bvn_mixtures(mp_fd, b);
       elbo_vars_fd = ElboDeriv.ElboIntermediateVariables(T, 1, 1);
       ElboDeriv.accum_star_pos!(
-        elbo_vars_fd, s, star_mcs[bmc_ind...], x, patch.wcs_jacobian, true);
+        elbo_vars_fd, s, star_mcs[bmc_ind...], x, patch.wcs, true);
       elbo_vars_fd.fs0m_vec[s].v[1]
     end
 
@@ -587,7 +586,7 @@ function test_fs0m_derivatives()
     clear!(elbo_vars.fs0m_vec[s])
     star_mcs, gal_mcs = ElboDeriv.load_bvn_mixtures(mp, b);
     ElboDeriv.accum_star_pos!(
-      elbo_vars, s, star_mcs[bmc_ind...], x, patch.wcs_jacobian, true);
+      elbo_vars, s, star_mcs[bmc_ind...], x, patch.wcs, true);
     fs0m = deepcopy(elbo_vars.fs0m_vec[s])
 
     test_with_autodiff(f_wrap_star, par_star, fs0m)
@@ -699,8 +698,7 @@ function test_galaxy_variable_transform()
     e_angle = par[par_ids_e_angle]
     e_axis = par[par_ids_e_axis]
     e_scale = par[par_ids_e_scale]
-    u_pix = WCSUtils.world_to_pix(
-      patch.wcs_jacobian, patch.center, patch.pixel_center, u)
+    u_pix = convert(Vector{T}, world_to_pix(patch.wcs, u))
 
     sigma = Util.get_bvn_cov(e_axis, e_angle, e_scale)
 
@@ -714,15 +712,14 @@ function test_galaxy_variable_transform()
 
   # First just test the bvn function itself
   par = wrap_par(u, e_angle, e_axis, e_scale)
-  u_pix = WCSUtils.world_to_pix(
-    patch.wcs_jacobian, patch.center, patch.pixel_center, u)
+  u_pix = convert(Vector{Float64}, world_to_pix(patch.wcs, u))
   sigma = Util.get_bvn_cov(e_axis, e_angle, e_scale)
   bmc = ElboDeriv.BvnComponent{Float64}(u_pix, sigma, 1.0);
   sig_sf = ElboDeriv.GalaxySigmaDerivs(e_angle, e_axis, e_scale, sigma);
   gcc = ElboDeriv.GalaxyCacheComponent(1.0, 1.0, bmc, sig_sf);
   elbo_vars = ElboDeriv.ElboIntermediateVariables(Float64, 1, 1);
   ElboDeriv.get_bvn_derivs!(elbo_vars, bmc, x, true, true);
-  ElboDeriv.transform_bvn_derivs!(elbo_vars, gcc, patch.wcs_jacobian);
+  ElboDeriv.transform_bvn_derivs!(elbo_vars, gcc, patch.wcs);
 
   f_bvn_wrap(par)
 
@@ -778,8 +775,7 @@ function test_galaxy_cache_component()
     e_angle = par[par_ids_e_angle]
     e_axis = par[par_ids_e_axis]
     e_scale = par[par_ids_e_scale]
-    u_pix = WCSUtils.world_to_pix(
-      patch.wcs_jacobian, patch.center, patch.pixel_center, u)
+    u_pix = convert(Vector{T}, world_to_pix(patch.wcs, u))
     elbo_vars_fd = ElboDeriv.ElboIntermediateVariables(T, 1, 1)
     e_dev_i_fd = convert(T, e_dev_i)
     gcc = ElboDeriv.GalaxyCacheComponent(
@@ -802,14 +798,13 @@ function test_galaxy_cache_component()
   end
 
   par = wrap_par(u, e_angle, e_axis, e_scale)
-  u_pix = WCSUtils.world_to_pix(
-    patch.wcs_jacobian, patch.center, patch.pixel_center, u)
+  u_pix = convert(Vector{Float64}, world_to_pix(patch.wcs, u))
   gcc = ElboDeriv.GalaxyCacheComponent(
           e_dev_dir, e_dev_i, gp, psf,
           u_pix, e_axis, e_angle, e_scale, true, true);
   elbo_vars = ElboDeriv.ElboIntermediateVariables(Float64, 1, 1);
   ElboDeriv.get_bvn_derivs!(elbo_vars, gcc.bmc, x, true, true);
-  ElboDeriv.transform_bvn_derivs!(elbo_vars, gcc, patch.wcs_jacobian);
+  ElboDeriv.transform_bvn_derivs!(elbo_vars, gcc, patch.wcs);
 
   # Sanity check the wrapper.
   @test_approx_eq(

@@ -1,10 +1,11 @@
 module SkyImages
 
 using ..Types
-import SloanDigitalSkySurvey: PSF, SDSS, WCSUtils
+import SloanDigitalSkySurvey: PSF, SDSS
 import SloanDigitalSkySurvey.PSF.get_psf_at_point
 
 import WCS
+import ..LinearWCS: LinearWCSTransform2D
 import DataFrames
 import ..ElboDeriv # For stitch_object_tiles
 import FITSIO
@@ -458,7 +459,7 @@ function crop_blob_to_location(
     tiled_blob = Array(TiledImage, length(blob))
     for b=1:5
         # Get the pixels that are near enough to the wcs_center.
-        pix_center = WCSUtils.world_to_pix(blob[b].wcs, wcs_center)
+        pix_center = WCS.world_to_pix(blob[b].wcs, wcs_center)
         h_min = max(floor(Int, pix_center[1] - width), 1)
         h_max = min(ceil(Int, pix_center[1] + width), blob[b].H)
         sub_rows_h = h_min:h_max
@@ -543,7 +544,7 @@ function get_source_psf(world_loc::Vector{Float64}, img::Image)
     if size(img.raw_psf_comp.rrows) == (0, 0)
       return img.psf
     else
-      pixel_loc = WCSUtils.world_to_pix(img.wcs, world_loc)
+      pixel_loc = WCS.world_to_pix(img.wcs, world_loc)
       raw_psf =
         PSF.get_psf_at_point(pixel_loc[1], pixel_loc[2], img.raw_psf_comp);
       fit_psf, scale = PSF.fit_psf_gaussians(raw_psf)
@@ -586,23 +587,19 @@ end
 # A pixel circle maps locally to a world ellipse.  Return the major
 # axis of that ellipse.
 function pixel_radius_to_world(pix_radius::Float64,
-                               wcs_jacobian::Matrix{Float64})
-  pix_radius / minimum(abs(eig(wcs_jacobian)[1]));
+                               wcs::LinearWCSTransform2D{Float64})
+    jac = convert(Matrix{Float64}, wcs.jacobian)  # so we can use `eig`
+    pix_radius / minimum(abs(eig(jac)[1]))
 end
 
 
 # A world circle maps locally to a pixel ellipse.  Return the major
 # axis of that ellipse.
 function world_radius_to_pixel(world_radius::Float64,
-                               wcs_jacobian::Matrix{Float64})
-  world_radius * maximum(abs(eig(wcs_jacobian)[1]));
+                               wcs::LinearWCSTransform2D{Float64})
+    jac = convert(Matrix{Float64}, wcs.jacobian)  # so we can use `eig`
+    world_radius * maximum(abs(eig(jac)[1]))
 end
-
-
-import SloanDigitalSkySurvey.WCSUtils.world_to_pix
-world_to_pix{T <: Number}(patch::SkyPatch, world_loc::Vector{T}) =
-    world_to_pix(patch.wcs_jacobian, patch.center, patch.pixel_center,
-                 world_loc)
 
 
 """
@@ -622,9 +619,8 @@ function local_source_candidates(
 
   # Get the largest size of the pixel ellipse defined by the patch
   # world coordinate circle.
-  patch_pixel_radii =
-    Float64[patches[s].radius * maximum(abs(eig(patches[s].wcs_jacobian)[1]))
-            for s=1:length(patches)];
+  patch_pixel_radii = [world_radius_to_pixel(patch.radius, patch.wcs)
+                       for patch in patches]
 
   candidates = fill(Int[], size(tiles));
   for h=1:size(tiles)[1], w=1:size(tiles)[2]
@@ -633,10 +629,12 @@ function local_source_candidates(
     # overlap with the tile.
     tile = tiles[h, w]
     tile_center = [ mean(tile.h_range), mean(tile.w_range)]
+    tile_hctr = mean(tile.h_range)
+    tile_wctr = mean(tile.w_range)
     tile_diag = (0.5 ^ 2) * (tile.h_width ^ 2 + tile.w_width ^ 2)
-    patch_distances =
-      [ sum((tile_center .- patches[s].pixel_center) .^ 2) for
-        s=1:length(patches)]
+    patch_distances = [((tile_hctr - patch.wcs.pix_offset[1])^2 +
+                        (tile_wctr - patch.wcs.pix_offset[2])^2)
+                       for patch in patches ]
     candidates[h, w] =
       find(patch_distances .<= (tile_diag .+ patch_pixel_radii) .^ 2)
   end
@@ -662,12 +660,12 @@ function get_local_sources(tile::ImageTile, patches::Vector{SkyPatch})
 
     for patch_index in 1:length(patches)
       patch = patches[patch_index]
-      patch_radius_px = world_radius_to_pixel(patch.radius, patch.wcs_jacobian)
+      patch_radius_px = world_radius_to_pixel(patch.radius, patch.wcs)
 
       # This is a "ball" in the infinity norm.
-      if (abs(tile_center[1] - patch.pixel_center[1]) <
+      if (abs(tile_center[1] - patch.wcs.pix_offset[1]) <
           patch_radius_px + 0.5 * tile.h_width) &&
-         (abs(tile_center[2] - patch.pixel_center[2]) <
+         (abs(tile_center[2] - patch.wcs.pix_offset[2]) <
           patch_radius_px + 0.5 * tile.w_width)
         push!(tile_sources, patch_index)
       end

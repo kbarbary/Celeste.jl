@@ -6,9 +6,9 @@ using ..Types
 using ..SensitiveFloats
 import ..Util
 import ..KL
+import ..LinearWCS: LinearWCSTransform2D, world_to_pix
 
 import ForwardDiff
-import SloanDigitalSkySurvey.WCSUtils
 
 Threaded = true
 if VERSION > v"0.5.0-dev"
@@ -223,7 +223,7 @@ function accum_star_pos!{NumType <: Number}(
     s::Int,
     bmc::BvnComponent{NumType},
     x::Vector{Float64},
-    wcs_jacobian::Array{Float64, 2},
+    wcs::LinearWCSTransform2D{Float64},
     calculate_derivs::Bool)
 
   eval_bvn_pdf_in_place!(elbo_vars, bmc, x)
@@ -236,7 +236,7 @@ function accum_star_pos!{NumType <: Number}(
   fs0m.v[1] += elbo_vars.f_pre[1]
 
   if elbo_vars.calculate_derivs && calculate_derivs
-    transform_bvn_derivs!(elbo_vars, bmc, wcs_jacobian)
+    transform_bvn_derivs!(elbo_vars, bmc, wcs)
     bvn_u_d = elbo_vars.bvn_u_d
     bvn_uu_h = elbo_vars.bvn_uu_h
 
@@ -281,7 +281,7 @@ function accum_galaxy_pos!{NumType <: Number}(
     s::Int,
     gcc::GalaxyCacheComponent{NumType},
     x::Vector{Float64},
-    wcs_jacobian::Array{Float64, 2},
+    wcs::LinearWCSTransform2D{Float64},
     calculate_derivs::Bool)
 
   eval_bvn_pdf_in_place!(elbo_vars, gcc.bmc, x)
@@ -293,7 +293,7 @@ function accum_galaxy_pos!{NumType <: Number}(
 
     get_bvn_derivs_in_place!(elbo_vars, gcc.bmc,
       elbo_vars.calculate_hessian, elbo_vars.calculate_hessian);
-    transform_bvn_derivs!(elbo_vars, gcc, wcs_jacobian)
+    transform_bvn_derivs!(elbo_vars, gcc, wcs)
 
     bvn_u_d = elbo_vars.bvn_u_d
     bvn_uu_h = elbo_vars.bvn_uu_h
@@ -392,7 +392,7 @@ function populate_fsm_vecs!{NumType <: Number}(
 
   x = Float64[tile.h_range[h], tile.w_range[w]]
   for s in tile_sources
-    wcs_jacobian = mp.patches[s, tile.b].wcs_jacobian;
+    wcs = mp.patches[s, tile.b].wcs
     active_source = s in mp.active_sources
 
     calculate_hessian =
@@ -400,7 +400,7 @@ function populate_fsm_vecs!{NumType <: Number}(
     clear!(elbo_vars.fs0m_vec[s], calculate_hessian)
     for k = 1:3 # PSF component
       accum_star_pos!(
-        elbo_vars, s, star_mcs[k, s], x, wcs_jacobian, active_source)
+        elbo_vars, s, star_mcs[k, s], x, wcs, active_source)
     end
 
     clear!(elbo_vars.fs1m_vec[s], calculate_hessian)
@@ -410,7 +410,7 @@ function populate_fsm_vecs!{NumType <: Number}(
         if (i == 1) || (j <= 6)
           for k = 1:3 # PSF component
               accum_galaxy_pos!(
-                elbo_vars, s, gal_mcs[k, j, i, s], x, wcs_jacobian,
+                elbo_vars, s, gal_mcs[k, j, i, s], x, wcs,
                 active_source)
           end
         end

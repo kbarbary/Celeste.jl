@@ -35,6 +35,7 @@ import ForwardDiff
 
 import Base.length
 
+import ..LinearWCS.LinearWCSTransform2D
 
 const band_letters = ['u', 'g', 'r', 'i', 'z']
 
@@ -325,17 +326,14 @@ Attributes:
   - radius: The width of the influence of the object in world coordinates
 
   - psf: The point spread function in this region of the sky
-  - wcs_jacobian: The jacobian of the WCS transform in this region of the
-                  sky for each band
-  - pixel_center: The pixel location of center in each band.
+  - wcs: The local linearized WCS transform
 """
 immutable SkyPatch
     center::Vector{Float64}
     radius::Float64
 
     psf::Vector{PsfComponent}
-    wcs_jacobian::Matrix{Float64}
-    pixel_center::Vector{Float64}
+    wcs::LinearWCSTransform2D{Float64}
 end
 
 

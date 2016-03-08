@@ -1,5 +1,6 @@
 using Base.Test
 
+import WCS
 import SloanDigitalSkySurvey: SDSS, WCSUtils
 
 using Celeste: Types, SampleData
@@ -133,7 +134,7 @@ function test_local_sources_3()
     test_b = 3 # Will test using this band only
     pix_loc = Float64[50., 50.]
     blob0 = SkyImages.load_stamp_blob(dat_dir, "164.4311-39.0359");
-    body_loc = WCSUtils.pix_to_world(blob0[test_b].wcs, pix_loc)
+    body_loc = WCS.pix_to_world(blob0[test_b].wcs, pix_loc)
     one_body = [sample_ce(body_loc, true),]
 
     # Get synthetic blobs but with the original world coordinates.
@@ -148,7 +149,7 @@ function test_local_sources_3()
     # a pixel square of a certain size.
     pix_quad = [0. 0.               patch_radius_pix patch_radius_pix;
                 0. patch_radius_pix 0.               patch_radius_pix]
-    world_quad = WCSUtils.pix_to_world(blob[test_b].wcs, pix_quad)
+    world_quad = WCS.pix_to_world(blob[test_b].wcs, pix_quad)
     diags = [world_quad[:, i] - world_quad[:, i+2] for i=1:2]
     patch_radius = maximum([sqrt(dot(d, d)) for d in diags])
 

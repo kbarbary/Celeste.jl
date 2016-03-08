@@ -379,7 +379,7 @@ galaxy parameters (u).
 function transform_bvn_derivs!{NumType <: Number}(
     elbo_vars::ElboIntermediateVariables{NumType},
     bmc::BvnComponent{NumType},
-    wcs_jacobian::Array{Float64, 2})
+    wcs::LinearWCSTransform2D{Float64})
 
   bvn_u_d = elbo_vars.bvn_u_d
   bvn_uu_h = elbo_vars.bvn_uu_h
@@ -394,9 +394,9 @@ function transform_bvn_derivs!{NumType <: Number}(
   # because the object position affects the bvn.the_mean term, which is
   # subtracted from the pixel location as defined in bvn_sf.d.)
   bvn_u_d[1] =
-    -(bvn_x_d[1] * wcs_jacobian[1, 1] + bvn_x_d[2] * wcs_jacobian[2, 1])
+    -(bvn_x_d[1] * wcs.jacobian[1][1] + bvn_x_d[2] * wcs.jacobian[1][2])
   bvn_u_d[2] =
-    -(bvn_x_d[1] * wcs_jacobian[1, 2] + bvn_x_d[2] * wcs_jacobian[2, 2])
+    -(bvn_x_d[1] * wcs.jacobian[2][1] + bvn_x_d[2] * wcs.jacobian[2][2])
 
 
   if elbo_vars.calculate_hessian
@@ -407,9 +407,9 @@ function transform_bvn_derivs!{NumType <: Number}(
     # As above, dxA_duB = -wcs_jacobian[A, B] and d2x / du2 = 0.
     # TODO: time consuming **************
     @inbounds for x_id2 in 1:2, x_id1 in 1:2, u_id2 in 1:2
-      inner_term = bvn_xx_h[x_id1, x_id2] * wcs_jacobian[x_id2, u_id2]
+      inner_term = bvn_xx_h[x_id1, x_id2] * wcs.jacobian[u_id2][x_id2]
       @inbounds for u_id1 in 1:u_id2
-        bvn_uu_h[u_id1, u_id2] += inner_term * wcs_jacobian[x_id1, u_id1]
+        bvn_uu_h[u_id1, u_id2] += inner_term * wcs.jacobian[u_id1][x_id1]
       end
     end
     @inbounds bvn_uu_h[2, 1] = bvn_uu_h[1, 2]
@@ -426,7 +426,7 @@ You must have already called get_bvn_derivs!() before calling this.
 function transform_bvn_derivs!{NumType <: Number}(
     elbo_vars::ElboIntermediateVariables{NumType},
     gcc::GalaxyCacheComponent{NumType},
-    wcs_jacobian::Array{Float64, 2})
+    wcs::LinearWCSTransform2D{Float64})
 
   bvn_s_d = elbo_vars.bvn_s_d
   bvn_ss_h = elbo_vars.bvn_ss_h
@@ -440,7 +440,7 @@ function transform_bvn_derivs!{NumType <: Number}(
   bvn_xsig_h = elbo_vars.bvn_xsig_h
 
   # Transform the u derivates first.
-  transform_bvn_derivs!(elbo_vars, gcc.bmc, wcs_jacobian)
+  transform_bvn_derivs!(elbo_vars, gcc.bmc, wcs)
 
   # Gradient calculations.
 
@@ -486,7 +486,7 @@ function transform_bvn_derivs!{NumType <: Number}(
                   u_id in 1:2, sig_id in 1:3, x_id in 1:2
       bvn_us_h[u_id, shape_id] +=
         bvn_xsig_h[x_id, sig_id] * gcc.sig_sf.j[sig_id, shape_id] *
-        (-wcs_jacobian[x_id, u_id])
+        (-wcs.jacobian[u_id][x_id])
     end
   end
 end
@@ -530,9 +530,9 @@ function load_bvn_mixtures{NumType <: Number}(
       vs = mp.vp[s]
 
       world_loc = vs[[ids.u[1], ids.u[2]]]
-      m_pos = WCSUtils.world_to_pix(mp.patches[s, b].wcs_jacobian,
-                                    mp.patches[s, b].center,
-                                    mp.patches[s, b].pixel_center, world_loc)
+
+      world_loc = vs[ids.u[1]], vs[ids.u[2]]
+      m_pos = world_to_pix(mp.patches[s, b].wcs, world_loc)
 
       # Convolve the star locations with the PSF.
       for k in 1:3
@@ -553,7 +553,8 @@ function load_bvn_mixtures{NumType <: Number}(
               for k = 1:3
                   gal_mcs[k, j, i, s] = GalaxyCacheComponent(
                       e_dev_dir, e_dev_i, galaxy_prototypes[i][j], psf[k],
-                      m_pos, vs[ids.e_axis], vs[ids.e_angle], vs[ids.e_scale],
+                      [m_pos[1], m_pos[2]], vs[ids.e_axis], vs[ids.e_angle],
+                      vs[ids.e_scale],
                       calculate_derivs && (s in mp.active_sources),
                       calculate_hessian)
               end
